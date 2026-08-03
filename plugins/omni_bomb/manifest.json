@@ -1,0 +1,10 @@
+{
+  "name": "omni_bomb",
+  "display_name": "💣 Omni Bomb",
+  "version": "1.0.0",
+  "description": "ВНИМАНИЕ! Этот плагин заложит весь Omni! Запускать на свой страх и риск!",
+  "type": "daemon",
+  "entrypoint": "main.py",
+  "author": "Anonymous Hacker",
+  "permissions": ["all"]
+}

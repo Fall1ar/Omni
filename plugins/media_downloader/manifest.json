@@ -1,0 +1,24 @@
+{
+  "name": "media_downloader",
+  "display_name": "Media Downloader",
+  "version": "0.1.0",
+  "description": "Медиа-Комбайн: скачивание видео (YouTube, TikTok и др.) через yt-dlp",
+  "type": "service",
+  "entrypoint": "main.py",
+  "python": ">=3.10",
+  "permissions": ["net:download", "fs:write"],
+  "auto_start": false,
+  "idle_timeout_sec": 600,
+  "ui_schema": {
+    "method": "download_video",
+    "fields": [
+      {
+        "name": "url",
+        "type": "text",
+        "label": "Ссылка на видео",
+        "placeholder": "https://..."
+      }
+    ],
+    "submit_button": "Скачать видео"
+  }
+}

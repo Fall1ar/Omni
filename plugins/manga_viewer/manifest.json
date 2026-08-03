@@ -1,0 +1,12 @@
+{
+  "name": "manga_viewer",
+  "display_name": "Manga Viewer",
+  "version": "0.1.0",
+  "description": "UI плагин для просмотра манги",
+  "type": "app",
+  "entrypoint": "main.py",
+  "python": ">=3.10",
+  "permissions": ["net:download"],
+  "auto_start": false,
+  "idle_timeout_sec": 600
+}

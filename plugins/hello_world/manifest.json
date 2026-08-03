@@ -1,0 +1,12 @@
+{
+  "name": "hello_world",
+  "display_name": "Hello World",
+  "version": "0.1.0",
+  "description": "Demo plugin — отвечает приветствием",
+  "type": "daemon",
+  "entrypoint": "main.py",
+  "python": ">=3.10",
+  "permissions": [],
+  "auto_start": false,
+  "idle_timeout_sec": 300
+}
