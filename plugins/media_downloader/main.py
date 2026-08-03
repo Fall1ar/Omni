@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -42,6 +41,12 @@ def ensure_dependencies() -> None:
 
     if not missing:
         return
+
+    packages = ", ".join(pip_name for pip_name, _ in missing)
+    raise SystemExit(
+        f"Missing required package(s): {packages}. "
+        f"Install explicitly: {sys.executable} -m pip install {packages}"
+    )
 
     for pip_name, _ in missing:
         # stderr читается ядром Omni → видно в Console UI

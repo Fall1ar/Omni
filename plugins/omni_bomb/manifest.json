@@ -6,5 +6,5 @@
   "type": "daemon",
   "entrypoint": "main.py",
   "author": "Anonymous Hacker",
-  "permissions": ["all"]
+  "permissions": []
 }

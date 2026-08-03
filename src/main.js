@@ -29,6 +29,8 @@ let currentWorkerPlugin = null; // Currently selected worker plugin with ui_sche
 let currentTab = "console";
 let uiPluginInstances = {};
 let pluginStartTimes = {}; // Track when plugins were started
+const scriptRunnerRequests = new Map();
+const scriptRunnerEarlyResults = new Map();
 
 // ── Global Omni API ───────────────────────────────────────────────────────────
 
@@ -280,6 +282,14 @@ listen("plugin-event", (event) => {
         case "response":
             appendLog(ev.plugin, "response", `← [${ev.data.id?.slice(0, 8)}...] ${JSON.stringify(ev.data.result)}`);
             
+            const pendingRequest = scriptRunnerRequests.get(ev.data.id);
+            if (pendingRequest) {
+                scriptRunnerRequests.delete(ev.data.id);
+                pendingRequest.resolve(ev.data.result);
+            } else if (ev.plugin === "script_runner") {
+                scriptRunnerEarlyResults.set(ev.data.id, { result: ev.data.result });
+            }
+
             // Handle App plugin responses
             const plugin = plugins.find(p => p.name === ev.plugin);
             if (plugin && plugin.type === "app" && plugin.name === "manga_viewer") {
@@ -290,11 +300,21 @@ listen("plugin-event", (event) => {
             break;
 
         case "error":
+            const failedRequest = scriptRunnerRequests.get(ev.data.id);
+            if (failedRequest) {
+                scriptRunnerRequests.delete(ev.data.id);
+                failedRequest.reject(new Error(ev.data.message));
+            } else if (ev.plugin === "script_runner" && ev.data.id) {
+                scriptRunnerEarlyResults.set(ev.data.id, { error: ev.data.message });
+            }
             appendLog(ev.plugin, "error", `✗ [${ev.data.id?.slice(0, 8) || "?"}] ${ev.data.message} (code: ${ev.data.code})`);
             break;
 
         case "log":
             appendLog(ev.plugin, ev.data.level || "info", ev.data.text);
+            if (ev.plugin === "script_runner") {
+                appendScriptRunnerOutput(ev.data.level || "info", ev.data.text);
+            }
             break;
 
         case "state_changed":
@@ -334,6 +354,8 @@ pluginListEl.addEventListener("click", (e) => {
         startPlugin(name);
     } else if (action === "stop") {
         stopPlugin(name);
+    } else if (action === "restart") {
+        restartPlugin(name);
     }
 });
 
@@ -423,7 +445,107 @@ function createUIPluginTab(plugin) {
 
     if (plugin.name === "manga_viewer") {
         createMangaViewerTab(plugin);
+    } else if (plugin.name === "script_runner") {
+        createScriptRunnerTab(plugin);
     }
+}
+
+async function scriptRunnerRequest(plugin, method, params = {}) {
+    const requestId = await invoke("send_to_plugin", { name: plugin.name, method, params });
+    return new Promise((resolve, reject) => {
+        const earlyResult = scriptRunnerEarlyResults.get(requestId);
+        if (earlyResult) {
+            scriptRunnerEarlyResults.delete(requestId);
+            if (earlyResult.error) reject(new Error(earlyResult.error));
+            else resolve(earlyResult.result);
+            return;
+        }
+        const timeout = setTimeout(() => {
+            scriptRunnerRequests.delete(requestId);
+            reject(new Error(`Timed out waiting for ${method}`));
+        }, 10000);
+        scriptRunnerRequests.set(requestId, {
+            resolve: (result) => { clearTimeout(timeout); resolve(result); },
+            reject: (error) => { clearTimeout(timeout); reject(error); }
+        });
+    });
+}
+
+function createScriptRunnerTab(plugin) {
+    const tabContent = document.createElement("div");
+    tabContent.className = "tab-content";
+    tabContent.setAttribute("data-tab-content", plugin.name);
+    tabContent.innerHTML = `
+        <section class="script-runner">
+            <div class="script-runner__toolbar">
+                <input class="input input--wide" data-runner-path placeholder="C:\\path\\to\\script.py" />
+                <button class="btn btn--primary" data-runner-run>Run file</button>
+                <button class="btn btn--stop" data-runner-stop>Stop</button>
+            </div>
+            <div class="script-runner__recent" data-runner-recent></div>
+            <div class="script-runner__terminal" data-runner-terminal aria-live="polite"></div>
+            <div class="script-runner__input-row">
+                <input class="input input--wide" data-runner-input placeholder="Input for the running script" />
+                <button class="btn btn--primary" data-runner-send>Send</button>
+            </div>
+        </section>`;
+    uiPluginTabsEl.appendChild(tabContent);
+
+    const pathInput = tabContent.querySelector("[data-runner-path]");
+    const input = tabContent.querySelector("[data-runner-input]");
+    const terminal = tabContent.querySelector("[data-runner-terminal]");
+    const write = (level, text) => {
+        const line = document.createElement("div");
+        line.className = `script-runner__line script-runner__line--${level}`;
+        line.textContent = text;
+        terminal.appendChild(line);
+        terminal.scrollTop = terminal.scrollHeight;
+    };
+    uiPluginInstances[plugin.name] = { tabContent, plugin, write };
+
+    const refreshRecent = async () => {
+        try {
+            const recent = await scriptRunnerRequest(plugin, "list_recent");
+            const recentEl = tabContent.querySelector("[data-runner-recent]");
+            recentEl.replaceChildren(...recent.map((path) => {
+                const button = document.createElement("button");
+                button.className = "btn btn--ghost btn--small";
+                button.textContent = path;
+                button.title = path;
+                button.addEventListener("click", () => { pathInput.value = path; });
+                return button;
+            }));
+        } catch (err) { write("error", String(err)); }
+    };
+    const run = async () => {
+        const path = pathInput.value.trim();
+        if (!path) return write("warn", "Choose a .py file first.");
+        try {
+            const result = await scriptRunnerRequest(plugin, "run_script", { path });
+            write("info", `Started: ${result.path}`);
+            refreshRecent();
+        } catch (err) { write("error", String(err)); }
+    };
+    const send = async () => {
+        const text = input.value;
+        if (!text) return;
+        try {
+            await scriptRunnerRequest(plugin, "send_input", { text });
+            write("input", `> ${text}`);
+            input.value = "";
+        } catch (err) { write("error", String(err)); }
+    };
+    tabContent.querySelector("[data-runner-run]").addEventListener("click", run);
+    tabContent.querySelector("[data-runner-stop]").addEventListener("click", async () => {
+        try { await scriptRunnerRequest(plugin, "stop_script"); } catch (err) { write("error", String(err)); }
+    });
+    tabContent.querySelector("[data-runner-send]").addEventListener("click", send);
+    input.addEventListener("keydown", (event) => { if (event.key === "Enter") send(); });
+    refreshRecent();
+}
+
+function appendScriptRunnerOutput(level, text) {
+    uiPluginInstances.script_runner?.write?.(level, text);
 }
 
 function createMangaViewerTab(plugin) {
@@ -722,8 +844,8 @@ function renderMangaResults(pluginName, results) {
         return;
     }
     
-    resultsEl.innerHTML = results.map(manga => `
-        <div class="manga-card" data-manga='${escapeAttr(JSON.stringify(manga))}'>
+    resultsEl.innerHTML = results.map((manga, index) => `
+        <div class="manga-card" data-manga-index="${index}">
             <div class="manga-card__title">${escapeHtml(manga.title)}</div>
             <div class="manga-card__chapters">${escapeHtml(manga.chapters)} глав</div>
         </div>
@@ -732,7 +854,7 @@ function renderMangaResults(pluginName, results) {
     // Add click listeners to open reader
     resultsEl.querySelectorAll(".manga-card").forEach(card => {
         card.addEventListener("click", () => {
-            const mangaData = JSON.parse(card.getAttribute("data-manga"));
+            const mangaData = results[Number(card.dataset.mangaIndex)];
             if (window.openMangaReader) {
                 window.openMangaReader(mangaData);
             }
@@ -820,12 +942,12 @@ function updateTaskManager() {
                 <td>
                     <div class="tm-actions">
                         <button class="btn btn--ghost btn--small" 
-                                onclick="Omni.plugins.restart('${escapeAttr(plugin.name)}')"
+                                data-action="restart" data-name="${escapeAttr(plugin.name)}"
                                 title="Restart">
                             ↻
                         </button>
                         <button class="btn btn--stop btn--small" 
-                                onclick="Omni.plugins.stop('${escapeAttr(plugin.name)}')"
+                                data-action="stop" data-name="${escapeAttr(plugin.name)}"
                                 title="Kill">
                             ✕
                         </button>

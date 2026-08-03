@@ -1150,3 +1150,47 @@ body {
 .toast--info .toast__icon {
     color: var(--info);
 }
+
+.script-runner {
+    display: grid;
+    grid-template-rows: auto auto minmax(260px, 1fr) auto;
+    gap: 12px;
+    height: 100%;
+    padding: 20px;
+}
+
+.script-runner__toolbar,
+.script-runner__input-row,
+.script-runner__recent {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.script-runner__recent {
+    flex-wrap: wrap;
+    overflow: auto;
+}
+
+.script-runner__recent .btn {
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.script-runner__terminal {
+    overflow: auto;
+    padding: 14px;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: #d1d5db;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    white-space: pre-wrap;
+}
+
+.script-runner__line--error { color: var(--error); }
+.script-runner__line--warn { color: var(--warning); }
+.script-runner__line--input { color: var(--accent); }

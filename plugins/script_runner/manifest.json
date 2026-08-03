@@ -1,0 +1,12 @@
+{
+  "name": "script_runner",
+  "display_name": "Script Runner",
+  "version": "0.1.0",
+  "description": "Runs one trusted local Python script at a time.",
+  "type": "app",
+  "entrypoint": "main.py",
+  "python": ">=3.10",
+  "permissions": ["fs:read", "fs:execute"],
+  "auto_start": false,
+  "idle_timeout_sec": 0
+}
