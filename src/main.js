@@ -10,6 +10,7 @@ const logOutputEl = document.getElementById("log-output");
 const btnRefresh = document.getElementById("btn-refresh");
 const btnClearLog = document.getElementById("btn-clear-log");
 const btnTaskManager = document.getElementById("btn-task-manager");
+const btnPluginHub = document.getElementById("btn-plugin-hub");
 
 // Tabs
 const tabsNavEl = document.querySelector(".tabs-nav");
@@ -333,6 +334,7 @@ btnRefresh.addEventListener("click", refreshPlugins);
 btnClearLog.addEventListener("click", () => { logOutputEl.innerHTML = ""; });
 btnSchemaSubmit.addEventListener("click", submitSendPanel);
 btnTaskManager.addEventListener("click", () => switchTab("task-manager"));
+btnPluginHub.addEventListener("click", openPluginHub);
 
 schemaFieldsEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -895,6 +897,49 @@ function showToast(message, type = 'info', duration = 3000) {
         toast.classList.remove('toast--visible');
         setTimeout(() => toast.remove(), 300);
     }, duration);
+}
+
+async function openPluginHub() {
+    let collections = [];
+    try { collections = await invoke("list_collections"); } catch (err) { Omni.toast.error(String(err)); return; }
+    const hub = document.createElement("div");
+    hub.className = "plugin-hub-backdrop";
+    hub.innerHTML = `
+      <section class="plugin-hub">
+        <header class="plugin-hub__header"><div><p class="plugin-hub__eyebrow">OMNI / EXTENSIONS</p><h2>Plugin Hub</h2><p>Manage your local plugin workspace</p></div><button class="btn btn--ghost" data-hub-close>Close</button></header>
+        <div class="plugin-hub__actions"><input class="input input--wide" data-hub-search placeholder="Search plugins"/><button class="btn btn--primary" data-hub-new-folder>New collection</button></div>
+        <div class="plugin-hub__import"><input class="input input--wide" data-hub-path placeholder="Path to a plugin folder containing manifest.json"/><select class="input" data-hub-collection><option value="">Root collection</option>${collections.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("")}</select><button class="btn btn--primary" data-hub-import>Import</button></div>
+        <div class="plugin-hub__market"><div><strong>Marketplace</strong><span> Local catalog is ready. Remote sources can be added later without changing installed plugins.</span></div><span class="plugin-hub__badge">${plugins.length} installed</span></div>
+        <div class="plugin-hub__grid" data-hub-grid></div>
+      </section>`;
+    document.body.appendChild(hub);
+    const grid = hub.querySelector("[data-hub-grid]");
+    const render = () => {
+        const query = hub.querySelector("[data-hub-search]").value.toLowerCase();
+        const selected = plugins.filter(p => `${p.name} ${p.display_name} ${p.description}`.toLowerCase().includes(query));
+        grid.innerHTML = selected.map(p => `<article class="hub-card"><div class="hub-card__top"><span>${getPluginIcon(p)}</span><span class="hub-card__state hub-card__state--${escapeAttr(p.state)}">${escapeHtml(p.state)}</span></div><h3>${escapeHtml(p.display_name || p.name)}</h3><p>${escapeHtml(p.description || "No description provided.")}</p><footer><span>${escapeHtml(p.type)} · v${escapeHtml(p.version)}</span><button class="btn btn--ghost btn--small" data-hub-export="${escapeAttr(p.name)}">Export</button></footer></article>`).join("") || '<div class="plugin-list__empty">No matching plugins</div>';
+    };
+    render();
+    hub.querySelector("[data-hub-close]").addEventListener("click", () => hub.remove());
+    hub.addEventListener("click", async event => {
+        const exportButton = event.target.closest("[data-hub-export]");
+        if (exportButton) {
+            const destination = window.prompt("Existing folder for export:");
+            if (!destination) return;
+            try { await invoke("export_plugin", { name: exportButton.dataset.hubExport, destination }); Omni.toast.success("Plugin exported"); } catch (err) { Omni.toast.error(String(err)); }
+        }
+    });
+    hub.querySelector("[data-hub-search]").addEventListener("input", render);
+    hub.querySelector("[data-hub-new-folder]").addEventListener("click", async () => {
+        const name = window.prompt("Collection name:"); if (!name) return;
+        try { await invoke("create_collection", { name }); hub.remove(); await refreshPlugins(); openPluginHub(); } catch (err) { Omni.toast.error(String(err)); }
+    });
+    hub.querySelector("[data-hub-import]").addEventListener("click", async () => {
+        const source = hub.querySelector("[data-hub-path]").value.trim();
+        const collection = hub.querySelector("[data-hub-collection]").value || null;
+        if (!source) return Omni.toast.warning("Enter a plugin folder path");
+        try { await invoke("import_plugin", { source, collection }); hub.remove(); await refreshPlugins(); Omni.toast.success("Plugin imported"); } catch (err) { Omni.toast.error(String(err)); }
+    });
 }
 
 // ── Task Manager ──────────────────────────────────────────────────────────────

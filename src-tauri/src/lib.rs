@@ -51,6 +51,26 @@ async fn send_to_plugin(
     mgr.send(&name, &method, params).await
 }
 
+#[tauri::command]
+async fn list_collections(manager: tauri::State<'_, SharedPluginManager>) -> Result<Vec<String>, String> {
+    manager.lock().await.collections()
+}
+
+#[tauri::command]
+async fn create_collection(name: String, manager: tauri::State<'_, SharedPluginManager>) -> Result<(), String> {
+    manager.lock().await.create_collection(&name)
+}
+
+#[tauri::command]
+async fn import_plugin(source: String, collection: Option<String>, manager: tauri::State<'_, SharedPluginManager>) -> Result<(), String> {
+    manager.lock().await.import_plugin(source, collection)
+}
+
+#[tauri::command]
+async fn export_plugin(name: String, destination: String, manager: tauri::State<'_, SharedPluginManager>) -> Result<(), String> {
+    manager.lock().await.export_plugin(&name, destination)
+}
+
 // ── Инициализация ─────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -125,6 +145,10 @@ pub fn run() {
             start_plugin,
             stop_plugin,
             send_to_plugin,
+            list_collections,
+            create_collection,
+            import_plugin,
+            export_plugin,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

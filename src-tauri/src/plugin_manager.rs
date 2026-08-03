@@ -50,6 +50,18 @@ fn default_plugin_type() -> String {
     "worker".to_string()
 }
 
+fn copy_dir(source: &PathBuf, destination: &PathBuf) -> Result<(), String> {
+    std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(source).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let from = entry.path();
+        let to = destination.join(entry.file_name());
+        if from.is_dir() { copy_dir(&from, &to)?; }
+        else { std::fs::copy(&from, &to).map_err(|e| e.to_string())?; }
+    }
+    Ok(())
+}
+
 // ── Состояние плагина ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -99,6 +111,7 @@ pub struct PluginManager {
     shared_dir: PathBuf,
     /// Манифесты обнаруженных плагинов: имя → манифест
     manifests: HashMap<String, PluginManifest>,
+    plugin_paths: HashMap<String, PathBuf>,
     /// Текущее состояние плагинов
     states: HashMap<String, PluginState>,
     /// Активные процессы
@@ -126,6 +139,7 @@ impl PluginManager {
             plugins_dir,
             shared_dir,
             manifests: HashMap::new(),
+            plugin_paths: HashMap::new(),
             states: HashMap::new(),
             handles: HashMap::new(),
             event_tx,
@@ -136,6 +150,7 @@ impl PluginManager {
 
     pub fn discover(&mut self) -> Result<Vec<PluginInfo>, String> {
         self.manifests.clear();
+        self.plugin_paths.clear();
         // Не трогаем states/handles тех, кто уже запущен
 
         let entries = std::fs::read_dir(&self.plugins_dir)
@@ -159,11 +174,40 @@ impl PluginManager {
                 .map_err(|e| format!("Invalid manifest {}: {e}", manifest_path.display()))?;
 
             let name = manifest.name.clone();
+            self.plugin_paths.insert(name.clone(), path.clone());
             self.manifests.insert(name.clone(), manifest);
 
             // Если плагин не в handles (не запущен), ставим Discovered
             if !self.handles.contains_key(&name) {
                 self.states.insert(name, PluginState::Discovered);
+            }
+        }
+
+        // One nesting level represents a user collection: plugins/<collection>/<plugin>/.
+        for collection in std::fs::read_dir(&self.plugins_dir).into_iter().flatten().flatten() {
+            let collection_path = collection.path();
+            if !collection_path.is_dir() || collection_path.join("manifest.json").exists() {
+                continue;
+            }
+            for entry in std::fs::read_dir(&collection_path).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let manifest_path = path.join("manifest.json");
+                if !path.is_dir() || !manifest_path.exists() {
+                    continue;
+                }
+                let content = std::fs::read_to_string(&manifest_path)
+                    .map_err(|e| format!("Cannot read {}: {e}", manifest_path.display()))?;
+                let manifest: PluginManifest = serde_json::from_str(&content)
+                    .map_err(|e| format!("Invalid manifest {}: {e}", manifest_path.display()))?;
+                let name = manifest.name.clone();
+                if self.manifests.contains_key(&name) {
+                    return Err(format!("Duplicate plugin name '{name}'"));
+                }
+                self.plugin_paths.insert(name.clone(), path);
+                self.manifests.insert(name.clone(), manifest);
+                if !self.handles.contains_key(&name) {
+                    self.states.insert(name, PluginState::Discovered);
+                }
             }
         }
 
@@ -181,7 +225,7 @@ impl PluginManager {
                     .get(name)
                     .cloned()
                     .unwrap_or(PluginState::Discovered);
-                let path = self.plugins_dir.join(name).display().to_string();
+                let path = self.plugin_paths.get(name).unwrap_or(&self.plugins_dir).display().to_string();
                 let display_name = if manifest.display_name.is_empty() {
                     name.clone()
                 } else {
@@ -215,7 +259,10 @@ impl PluginManager {
             .ok_or_else(|| format!("Plugin '{name}' not found"))?
             .clone();
 
-        let plugin_dir = self.plugins_dir.join(name);
+        let plugin_dir = self.plugin_paths
+            .get(name)
+            .cloned()
+            .ok_or_else(|| format!("Plugin '{name}' path not found"))?;
         let entrypoint = plugin_dir.join(&manifest.entrypoint);
 
         if !entrypoint.exists() {
@@ -465,6 +512,49 @@ impl PluginManager {
         } else {
             Err(format!("Plugin '{name}' is not running"))
         }
+    }
+
+    pub fn collections(&self) -> Result<Vec<String>, String> {
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&self.plugins_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() && !path.join("manifest.json").exists() {
+                names.push(entry.file_name().to_string_lossy().to_string());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+
+    pub fn create_collection(&self, name: &str) -> Result<(), String> {
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err("Invalid collection name".to_string());
+        }
+        std::fs::create_dir_all(self.plugins_dir.join(name)).map_err(|e| e.to_string())
+    }
+
+    pub fn import_plugin(&self, source: String, collection: Option<String>) -> Result<(), String> {
+        let source = PathBuf::from(source).canonicalize().map_err(|e| e.to_string())?;
+        let manifest = source.join("manifest.json");
+        if !source.is_dir() || !manifest.is_file() { return Err("Source must be a plugin folder with manifest.json".to_string()); }
+        let content = std::fs::read_to_string(&manifest).map_err(|e| e.to_string())?;
+        let manifest: PluginManifest = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        let base = match collection { Some(name) => self.plugins_dir.join(name), None => self.plugins_dir.clone() };
+        if !base.starts_with(&self.plugins_dir) { return Err("Invalid collection".to_string()); }
+        std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
+        let destination = base.join(&manifest.name);
+        if destination.exists() { return Err(format!("Plugin '{}' already exists", manifest.name)); }
+        copy_dir(&source, &destination)
+    }
+
+    pub fn export_plugin(&self, name: &str, destination: String) -> Result<(), String> {
+        let source = self.plugin_paths.get(name).ok_or_else(|| format!("Plugin '{name}' not found"))?;
+        let destination = PathBuf::from(destination);
+        if !destination.is_dir() { return Err("Export destination must be an existing folder".to_string()); }
+        let target = destination.join(name);
+        if target.exists() { return Err("A folder with this plugin name already exists at destination".to_string()); }
+        copy_dir(source, &target)
     }
 
     // ── get_state ─────────────────────────────────────────────────────────
