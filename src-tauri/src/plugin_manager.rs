@@ -70,7 +70,6 @@ pub enum PluginState {
     Discovered,
     Spawned,
     Ready,
-    Busy,
     Dead,
 }
 
@@ -559,12 +558,6 @@ impl PluginManager {
         let target = destination.join(name);
         if target.exists() { return Err("A folder with this plugin name already exists at destination".to_string()); }
         copy_dir(source, &target)
-    }
-
-    // ── get_state ─────────────────────────────────────────────────────────
-
-    pub fn get_state(&self, name: &str) -> Option<&PluginState> {
-        self.states.get(name)
     }
 
     /// Обновляет состояние плагина (вызывается при получении "ready" и т.д.)

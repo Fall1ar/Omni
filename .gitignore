@@ -8,9 +8,13 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+src-tauri/target/
+target/
 dist
 dist-ssr
 *.local
+.env
+.env.*
 
 # Editor directories and files
 .vscode/*
@@ -26,5 +30,9 @@ dist-ssr
 # Runtime data produced by local plugins
 plugins/*/downloads/
 plugins/*/data/
+plugins/*/.venv/
+plugins/*/venv/
+plugins/**/__pycache__/
+plugins/**/*.pyc
 shared/**/__pycache__/
 *.pyc
