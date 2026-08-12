@@ -30,6 +30,8 @@ let currentWorkerPlugin = null; // Currently selected worker plugin with ui_sche
 let currentTab = "console";
 let uiPluginInstances = {};
 let pluginStartTimes = {}; // Track when plugins were started
+let taskManagerQuery = "";
+let taskManagerSort = "state";
 const scriptRunnerRequests = new Map();
 const scriptRunnerEarlyResults = new Map();
 
@@ -947,7 +949,7 @@ async function openPluginHub() {
 
 // ── Task Manager ──────────────────────────────────────────────────────────────
 
-function updateTaskManager() {
+function updateTaskManagerLegacy() {
     const totalEl = document.getElementById('tm-total');
     const activeEl = document.getElementById('tm-active');
     const tbody = document.getElementById('tm-tbody');
@@ -1050,6 +1052,169 @@ function formatUptime(ms) {
     if (hours > 0) return `${hours}ч ${minutes % 60}м`;
     if (minutes > 0) return `${minutes}м ${seconds % 60}с`;
     return `${seconds}с`;
+}
+
+function isPluginRunning(plugin) {
+    return plugin && ['ready', 'spawned', 'busy'].includes(plugin.state);
+}
+
+function formatUptimeCompact(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+function updateTaskManager() {
+    const panel = document.querySelector('.task-manager');
+    if (!panel) return;
+
+    if (!panel.querySelector('[data-tm-window]')) {
+        panel.innerHTML = `
+            <section class="tm-window" data-tm-window>
+                <header class="tm-titlebar">
+                    <div class="tm-titlebar__left">
+                        <span class="tm-titlebar__mark"></span>
+                        <div>
+                            <h2>Task Manager</h2>
+                            <p>Omni plugin processes</p>
+                        </div>
+                    </div>
+                    <div class="tm-titlebar__actions">
+                        <button class="tm-icon-btn" data-tm-refresh title="Refresh" type="button">R</button>
+                        <button class="tm-icon-btn tm-icon-btn--danger" data-tm-close title="Close" type="button">X</button>
+                    </div>
+                </header>
+                <div class="tm-summary">
+                    <div class="tm-summary__item"><span>Processes</span><strong data-tm-total>0</strong></div>
+                    <div class="tm-summary__item tm-summary__item--live"><span>Running</span><strong data-tm-running>0</strong></div>
+                    <div class="tm-summary__item"><span>Ready</span><strong data-tm-ready>0</strong></div>
+                    <div class="tm-summary__item"><span>Stopped</span><strong data-tm-stopped>0</strong></div>
+                </div>
+                <div class="tm-toolbar">
+                    <input class="tm-search" data-tm-search type="search" placeholder="Search process, path, PID" autocomplete="off" />
+                    <select class="tm-select" data-tm-sort>
+                        <option value="state">Sort: status</option>
+                        <option value="name">Sort: name</option>
+                        <option value="type">Sort: type</option>
+                        <option value="pid">Sort: PID</option>
+                    </select>
+                    <button class="btn btn--ghost btn--small" data-tm-start-all type="button">Start all</button>
+                </div>
+                <div class="tm-process-table">
+                    <table class="tm-table">
+                        <thead>
+                            <tr>
+                                <th>Process</th>
+                                <th>Status</th>
+                                <th>PID</th>
+                                <th>Type</th>
+                                <th>Uptime</th>
+                                <th>Location</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody data-tm-body></tbody>
+                    </table>
+                </div>
+            </section>`;
+
+        panel.querySelector('[data-tm-close]').addEventListener('click', () => switchTab('console'));
+        panel.querySelector('[data-tm-refresh]').addEventListener('click', refreshPlugins);
+        panel.querySelector('[data-tm-search]').addEventListener('input', event => {
+            taskManagerQuery = event.target.value;
+            updateTaskManager();
+        });
+        panel.querySelector('[data-tm-sort]').addEventListener('change', event => {
+            taskManagerSort = event.target.value;
+            updateTaskManager();
+        });
+        panel.querySelector('[data-tm-start-all]').addEventListener('click', async () => {
+            for (const plugin of plugins.filter(plugin => !isPluginRunning(plugin))) {
+                await startPlugin(plugin.name);
+            }
+        });
+        panel.querySelector('[data-tm-body]').addEventListener('click', event => {
+            const button = event.target.closest('[data-tm-action]');
+            if (!button) return;
+            const { tmAction: action, tmName: name } = button.dataset;
+            if (action === 'start') startPlugin(name);
+            if (action === 'stop') stopPlugin(name);
+            if (action === 'restart') restartPlugin(name);
+        });
+    }
+
+    const running = plugins.filter(isPluginRunning);
+    const ready = plugins.filter(plugin => plugin.state === 'ready').length;
+    const stopped = plugins.length - running.length;
+    const windowEl = panel.querySelector('[data-tm-window]');
+    const searchEl = windowEl.querySelector('[data-tm-search]');
+    const sortEl = windowEl.querySelector('[data-tm-sort]');
+    if (searchEl.value !== taskManagerQuery) searchEl.value = taskManagerQuery;
+    if (sortEl.value !== taskManagerSort) sortEl.value = taskManagerSort;
+
+    windowEl.querySelector('[data-tm-total]').textContent = plugins.length;
+    windowEl.querySelector('[data-tm-running]').textContent = running.length;
+    windowEl.querySelector('[data-tm-ready]').textContent = ready;
+    windowEl.querySelector('[data-tm-stopped]').textContent = stopped;
+
+    const query = taskManagerQuery.trim().toLowerCase();
+    const stateRank = { busy: 0, ready: 1, spawned: 2, discovered: 3, dead: 4 };
+    const visiblePlugins = plugins
+        .filter(plugin => {
+            if (!query) return true;
+            return [plugin.name, plugin.display_name, plugin.type, plugin.state, plugin.path, plugin.pid]
+                .some(value => String(value ?? '').toLowerCase().includes(query));
+        })
+        .sort((a, b) => {
+            if (taskManagerSort === 'state') return (stateRank[a.state] ?? 99) - (stateRank[b.state] ?? 99) || a.name.localeCompare(b.name);
+            if (taskManagerSort === 'pid') return (b.pid || 0) - (a.pid || 0) || a.name.localeCompare(b.name);
+            if (taskManagerSort === 'type') return String(a.type || '').localeCompare(String(b.type || '')) || a.name.localeCompare(b.name);
+            return (a.display_name || a.name).localeCompare(b.display_name || b.name);
+        });
+
+    const tbody = windowEl.querySelector('[data-tm-body]');
+    if (visiblePlugins.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="tm-table__empty">No matching processes</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = visiblePlugins.map(plugin => {
+        const isRunning = isPluginRunning(plugin);
+        const displayName = plugin.display_name || formatPluginName(plugin.name);
+        const startTime = pluginStartTimes[plugin.name];
+        const uptime = isRunning && startTime ? formatUptimeCompact(Date.now() - startTime) : '-';
+        const action = isRunning ? 'stop' : 'start';
+        const actionLabel = isRunning ? 'End task' : 'Start';
+
+        return `
+            <tr class="${isRunning ? 'tm-row--running' : ''}">
+                <td>
+                    <div class="tm-plugin">
+                        <span class="tm-plugin__icon">${getPluginIcon(plugin)}</span>
+                        <div>
+                            <span class="tm-plugin__name">${escapeHtml(displayName)}</span>
+                            <span class="tm-plugin__id">${escapeHtml(plugin.name)}</span>
+                        </div>
+                    </div>
+                </td>
+                <td><span class="tm-status tm-status--${escapeAttr(plugin.state)}">${escapeHtml(plugin.state)}</span></td>
+                <td><span class="tm-pid">${plugin.pid ? escapeHtml(plugin.pid) : '-'}</span></td>
+                <td><span class="tm-type">${escapeHtml(plugin.type || 'worker')}</span></td>
+                <td><span class="tm-uptime">${uptime}</span></td>
+                <td><span class="tm-path" title="${escapeAttr(plugin.path || '')}">${escapeHtml(plugin.path || '-')}</span></td>
+                <td>
+                    <div class="tm-actions">
+                        <button class="btn ${isRunning ? 'btn--stop' : 'btn--primary'} btn--small" data-tm-action="${action}" data-tm-name="${escapeAttr(plugin.name)}">${actionLabel}</button>
+                        <button class="btn btn--ghost btn--small" data-tm-action="restart" data-tm-name="${escapeAttr(plugin.name)}">Restart</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
 }
 
 async function restartPlugin(name) {

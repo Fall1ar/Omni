@@ -87,6 +87,8 @@ pub struct PluginInfo {
     pub state: PluginState,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ui_schema: Option<serde_json::Value>,
 }
 
@@ -226,6 +228,7 @@ impl PluginManager {
                     .cloned()
                     .unwrap_or(PluginState::Discovered);
                 let path = self.plugin_paths.get(name).unwrap_or(&self.plugins_dir).display().to_string();
+                let pid = self.handles.get(name).and_then(|handle| handle.child.id());
                 let display_name = if manifest.display_name.is_empty() {
                     name.clone()
                 } else {
@@ -239,6 +242,7 @@ impl PluginManager {
                     plugin_type: manifest.plugin_type.clone(),
                     state,
                     path,
+                    pid,
                     ui_schema: manifest.ui_schema.clone(),
                 }
             })
