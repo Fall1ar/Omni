@@ -3,6 +3,7 @@
 
 mod ipc;
 mod plugin_manager;
+mod template;
 
 use plugin_manager::{PluginEvent, PluginInfo, PluginManager, SharedPluginManager};
 use std::path::PathBuf;
@@ -70,6 +71,9 @@ async fn import_plugin(source: String, collection: Option<String>, manager: taur
 async fn export_plugin(name: String, destination: String, manager: tauri::State<'_, SharedPluginManager>) -> Result<(), String> {
     manager.lock().await.export_plugin(&name, destination)
 }
+
+#[tauri::command]
+fn create_plugin_template() -> Result<String, String> { template::create_plugin_template() }
 
 // ── Инициализация ─────────────────────────────────────────────────────────────
 
@@ -149,6 +153,7 @@ pub fn run() {
             create_collection,
             import_plugin,
             export_plugin,
+            create_plugin_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

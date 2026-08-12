@@ -907,7 +907,7 @@ async function openPluginHub() {
     hub.innerHTML = `
       <section class="plugin-hub">
         <header class="plugin-hub__header"><div><p class="plugin-hub__eyebrow">OMNI / EXTENSIONS</p><h2>Plugin Hub</h2><p>Manage your local plugin workspace</p></div><button class="btn btn--ghost" data-hub-close>Close</button></header>
-        <div class="plugin-hub__actions"><input class="input input--wide" data-hub-search placeholder="Search plugins"/><button class="btn btn--primary" data-hub-new-folder>New collection</button></div>
+        <div class="plugin-hub__actions"><input class="input input--wide" data-hub-search placeholder="Search plugins"/><button class="btn btn--ghost" data-hub-template>Create plugin</button><button class="btn btn--primary" data-hub-new-folder>New collection</button></div>
         <div class="plugin-hub__import"><input class="input input--wide" data-hub-path placeholder="Path to a plugin folder containing manifest.json"/><select class="input" data-hub-collection><option value="">Root collection</option>${collections.map(c => `<option value="${escapeAttr(c)}">${escapeHtml(c)}</option>`).join("")}</select><button class="btn btn--primary" data-hub-import>Import</button></div>
         <div class="plugin-hub__market"><div><strong>Marketplace</strong><span> Local catalog is ready. Remote sources can be added later without changing installed plugins.</span></div><span class="plugin-hub__badge">${plugins.length} installed</span></div>
         <div class="plugin-hub__grid" data-hub-grid></div>
@@ -930,6 +930,9 @@ async function openPluginHub() {
         }
     });
     hub.querySelector("[data-hub-search]").addEventListener("input", render);
+    hub.querySelector("[data-hub-template]").addEventListener("click", async () => {
+        try { const path = await invoke("create_plugin_template"); Omni.toast.success(`Template saved: ${path}`); } catch (err) { Omni.toast.error(String(err)); }
+    });
     hub.querySelector("[data-hub-new-folder]").addEventListener("click", async () => {
         const name = window.prompt("Collection name:"); if (!name) return;
         try { await invoke("create_collection", { name }); hub.remove(); await refreshPlugins(); openPluginHub(); } catch (err) { Omni.toast.error(String(err)); }
@@ -950,6 +953,42 @@ function updateTaskManager() {
     const tbody = document.getElementById('tm-tbody');
     
     if (!tbody) return;
+
+    const panel = document.querySelector('.task-manager');
+    if (panel && !panel.querySelector('[data-tm-dashboard]')) {
+        panel.innerHTML = `
+            <section class="tm-dashboard" data-tm-dashboard>
+                <header class="tm-dashboard__hero">
+                    <div><p class="tm-dashboard__eyebrow">SYSTEM OVERVIEW</p><h2>Task Control Center</h2><p>Live plugin processes, states and controls in one place.</p></div>
+                    <button class="btn btn--primary" data-tm-refresh>Refresh status</button>
+                </header>
+                <div class="tm-metrics"><div class="tm-metric"><span>Total plugins</span><strong data-tm-total>0</strong></div><div class="tm-metric tm-metric--live"><span>Running now</span><strong data-tm-active>0</strong></div><div class="tm-metric"><span>Idle / stopped</span><strong data-tm-idle>0</strong></div></div>
+                <div class="tm-dashboard__bar"><h3>Process board</h3><span data-tm-caption>Loading…</span></div>
+                <div class="tm-process-grid" data-tm-grid></div>
+            </section>`;
+        panel.querySelector('[data-tm-refresh]').addEventListener('click', refreshPlugins);
+    }
+
+    const running = plugins.filter(p => ['ready', 'spawned', 'busy'].includes(p.state));
+    const dashboard = document.querySelector('[data-tm-dashboard]');
+    if (dashboard) {
+        dashboard.querySelector('[data-tm-total]').textContent = plugins.length;
+        dashboard.querySelector('[data-tm-active]').textContent = running.length;
+        dashboard.querySelector('[data-tm-idle]').textContent = plugins.length - running.length;
+        dashboard.querySelector('[data-tm-caption]').textContent = `${running.length} active process${running.length === 1 ? '' : 'es'}`;
+        const grid = dashboard.querySelector('[data-tm-grid]');
+        grid.innerHTML = plugins.map(plugin => {
+            const isRunning = ['ready', 'spawned', 'busy'].includes(plugin.state);
+            const uptime = pluginStartTimes[plugin.name] ? formatUptime(Date.now() - pluginStartTimes[plugin.name]) : 'Not running';
+            return `<article class="tm-process ${isRunning ? 'tm-process--live' : ''}"><div class="tm-process__head"><span class="tm-process__icon">${getPluginIcon(plugin)}</span><span class="tm-process__state tm-process__state--${escapeAttr(plugin.state)}">${escapeHtml(plugin.state)}</span></div><h4>${escapeHtml(plugin.display_name || formatPluginName(plugin.name))}</h4><p>${escapeHtml(plugin.description || 'No description provided')}</p><dl><div><dt>Type</dt><dd>${escapeHtml(plugin.type || 'worker')}</dd></div><div><dt>Uptime</dt><dd>${uptime}</dd></div></dl><footer><button class="btn ${isRunning ? 'btn--stop' : 'btn--primary'} btn--small" data-tm-action="${isRunning ? 'stop' : 'start'}" data-tm-name="${escapeAttr(plugin.name)}">${isRunning ? 'Stop process' : 'Start process'}</button><button class="btn btn--ghost btn--small" data-tm-action="restart" data-tm-name="${escapeAttr(plugin.name)}">Restart</button></footer></article>`;
+        }).join('') || '<div class="tm-empty"><strong>No plugins yet</strong><span>Use Plugin Hub to import or create one.</span></div>';
+        grid.onclick = event => {
+            const button = event.target.closest('[data-tm-action]'); if (!button) return;
+            const { tmAction: action, tmName: name } = button.dataset;
+            if (action === 'start') startPlugin(name); else if (action === 'stop') stopPlugin(name); else restartPlugin(name);
+        };
+        return;
+    }
     
     const runningPlugins = plugins.filter(p => 
         p.state === 'ready' || p.state === 'spawned' || p.state === 'busy'
