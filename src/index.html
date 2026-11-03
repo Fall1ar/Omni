@@ -28,6 +28,12 @@
                 <button id="btn-refresh" class="btn btn--ghost" title="Refresh plugins">
                     <span class="btn__icon">↻</span>
                 </button>
+                <button id="btn-theme-settings" class="btn btn--ghost" type="button" title="Настройки темы" aria-label="Настройки темы">
+                    <svg class="btn__icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-1.7 2.94-.08-.02a1.7 1.7 0 0 0-1.73.5l-.06.07h-3.4l-.04-.08a1.7 1.7 0 0 0-1.4-1.06 1.7 1.7 0 0 0-1.52.56l-.06.06-2.94-1.7.02-.08a1.7 1.7 0 0 0-.5-1.73l-.07-.06v-3.4l.08-.04a1.7 1.7 0 0 0 1.06-1.4 1.7 1.7 0 0 0-.56-1.52l-.06-.06 1.7-2.94.08.02a1.7 1.7 0 0 0 1.73-.5l.06-.07h3.4l.04.08a1.7 1.7 0 0 0 1.4 1.06 1.7 1.7 0 0 0 1.52-.56l.06-.06 2.94 1.7-.02.08a1.7 1.7 0 0 0 .5 1.73l.07.06v3.4z"></path>
+                    </svg>
+                </button>
             </div>
         </header>
 
@@ -122,6 +128,32 @@
 
         <!-- Toast Notifications Container -->
         <div id="toast-container" class="toast-container"></div>
+
+        <section id="theme-settings" class="theme-settings-backdrop" role="dialog" aria-modal="true" aria-labelledby="theme-settings-title" hidden>
+            <div class="theme-settings">
+                <header class="theme-settings__header">
+                    <div>
+                        <p class="theme-settings__eyebrow">ВНЕШНИЙ ВИД OMNI</p>
+                        <h2 id="theme-settings-title">Темы оформления</h2>
+                        <p>Выбери готовую тему или импортируй свою.</p>
+                    </div>
+                    <button class="btn btn--ghost" type="button" data-theme-close aria-label="Закрыть настройки">✕</button>
+                </header>
+                <div class="theme-settings__themes" data-theme-list></div>
+                <div class="theme-settings__import-export">
+                    <div>
+                        <h3>Свои темы</h3>
+                        <p>Экспортируй палитру в JSON, измени цвета и импортируй файл обратно.</p>
+                    </div>
+                    <div class="theme-settings__actions">
+                        <button class="btn btn--ghost" type="button" data-theme-export>Экспортировать тему</button>
+                        <button class="btn btn--primary" type="button" data-theme-import>Импортировать JSON</button>
+                        <input data-theme-file type="file" accept=".json,application/json" hidden />
+                    </div>
+                </div>
+                <p class="theme-settings__hint">Импорт принимает только палитру цветов Omni. Скрипты и произвольный CSS не выполняются.</p>
+            </div>
+        </section>
 
     </div>
 

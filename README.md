@@ -8,6 +8,7 @@ The core app discovers plugins from `plugins/`, starts them as child Python proc
 
 - Plugin Hub: import, export, collections, marketplace-style installed plugin view, and plugin template export.
 - Task Manager: process table with status, PID, type, uptime, path, search, sorting, start, end task, and restart.
+- Themes: switch between Classic and Workbench, save the selection between launches, and import/export custom JSON palettes.
 - Script Runner plugin: runs one selected `.py` file and keeps recent files for reuse.
 - Python SDK: `shared/omni_sdk/bridge.py` gives plugins a small request/response bridge.
 

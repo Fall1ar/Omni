@@ -11,6 +11,8 @@ const btnRefresh = document.getElementById("btn-refresh");
 const btnClearLog = document.getElementById("btn-clear-log");
 const btnTaskManager = document.getElementById("btn-task-manager");
 const btnPluginHub = document.getElementById("btn-plugin-hub");
+const btnThemeSettings = document.getElementById("btn-theme-settings");
+const themeSettingsEl = document.getElementById("theme-settings");
 
 // Tabs
 const tabsNavEl = document.querySelector(".tabs-nav");
@@ -32,8 +34,345 @@ let uiPluginInstances = {};
 let pluginStartTimes = {}; // Track when plugins were started
 let taskManagerQuery = "";
 let taskManagerSort = "state";
+let activeThemeId = "classic";
+let activeTheme = null;
+let customThemes = [];
+let customThemeSequence = 0;
+let previousThemeFocus = null;
 const scriptRunnerRequests = new Map();
 const scriptRunnerEarlyResults = new Map();
+
+const THEME_STORAGE_KEY = "omni.theme-settings.v1";
+const THEME_COLOR_KEYS = [
+    "--bg-primary",
+    "--bg-secondary",
+    "--bg-surface",
+    "--bg-surface-hover",
+    "--bg-accent",
+    "--text-primary",
+    "--text-secondary",
+    "--text-muted",
+    "--accent",
+    "--accent-hover",
+    "--accent-glow",
+    "--success",
+    "--warning",
+    "--error",
+    "--info",
+    "--border",
+    "--border-accent"
+];
+
+const BUILT_IN_THEMES = [
+    {
+        id: "classic",
+        name: "Классическая",
+        appearance: "classic",
+        description: "Знакомый оригинальный вид Omni.",
+        colors: {
+            "--bg-primary": "#0d0f13",
+            "--bg-secondary": "#14171e",
+            "--bg-surface": "#1a1e28",
+            "--bg-surface-hover": "#222738",
+            "--bg-accent": "#2d3348",
+            "--text-primary": "#e4e6ef",
+            "--text-secondary": "#8b90a5",
+            "--text-muted": "#565b73",
+            "--accent": "#6c7eff",
+            "--accent-hover": "#8b99ff",
+            "--accent-glow": "#6c7eff26",
+            "--success": "#3dd68c",
+            "--warning": "#ffc246",
+            "--error": "#ff5e6c",
+            "--info": "#5eb5ff",
+            "--border": "#252a3a",
+            "--border-accent": "#3d4460"
+        }
+    },
+    {
+        id: "workbench",
+        name: "Workbench",
+        appearance: "workbench",
+        description: "Свежая графитово-зелёная тема с ярким лаймовым акцентом.",
+        colors: {
+            "--bg-primary": "#0b1110",
+            "--bg-secondary": "#111b18",
+            "--bg-surface": "#192621",
+            "--bg-surface-hover": "#24352d",
+            "--bg-accent": "#294237",
+            "--text-primary": "#e6f2e9",
+            "--text-secondary": "#a3b8a8",
+            "--text-muted": "#6f8777",
+            "--accent": "#b2ed78",
+            "--accent-hover": "#c7ff91",
+            "--accent-glow": "#b2ed7826",
+            "--success": "#79dfa0",
+            "--warning": "#f4c66e",
+            "--error": "#ff8585",
+            "--info": "#7bcaff",
+            "--border": "#2a3c32",
+            "--border-accent": "#48644f"
+        }
+    }
+];
+
+function normalizeThemeDefinition(candidate) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+        throw new Error("Тема должна быть JSON-объектом.");
+    }
+
+    const name = typeof candidate.name === "string" ? candidate.name.trim() : "";
+    if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) {
+        throw new Error("Название темы должно содержать от 1 до 40 символов.");
+    }
+    if (candidate.appearance !== "classic" && candidate.appearance !== "workbench") {
+        throw new Error('Поле "appearance" должно быть "classic" или "workbench".');
+    }
+
+    const colors = candidate.colors;
+    if (!colors || typeof colors !== "object" || Array.isArray(colors)) {
+        throw new Error('В теме отсутствует объект "colors".');
+    }
+
+    const unknownColor = Object.keys(colors).find(key => !THEME_COLOR_KEYS.includes(key));
+    if (unknownColor) {
+        throw new Error(`Неизвестный параметр цвета: ${unknownColor}`);
+    }
+
+    const normalizedColors = {};
+    for (const key of THEME_COLOR_KEYS) {
+        const value = colors[key];
+        if (typeof value !== "string" || !/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/.test(value)) {
+            throw new Error(`Цвет "${key}" должен быть HEX-кодом #RRGGBB или #RRGGBBAA.`);
+        }
+        normalizedColors[key] = value;
+    }
+
+    return {
+        name,
+        appearance: candidate.appearance,
+        colors: normalizedColors
+    };
+}
+
+function findThemeById(id) {
+    return BUILT_IN_THEMES.find(theme => theme.id === id)
+        || customThemes.find(theme => theme.id === id)
+        || BUILT_IN_THEMES[0];
+}
+
+function persistThemeSettings() {
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
+            activeThemeId,
+            customThemes: customThemes.map(({ id, name, appearance, colors }) => ({
+                id,
+                name,
+                appearance,
+                colors
+            }))
+        }));
+    } catch (error) {
+        Omni.toast.error(`Не удалось сохранить тему: ${error.message || error}`);
+    }
+}
+
+function applyTheme(theme, { persist = true, notify = false } = {}) {
+    activeTheme = theme;
+    activeThemeId = theme.id;
+    document.documentElement.dataset.theme = theme.appearance;
+
+    for (const key of THEME_COLOR_KEYS) {
+        if (theme.id === "classic") {
+            document.documentElement.style.removeProperty(key);
+        } else {
+            document.documentElement.style.setProperty(key, theme.colors[key]);
+        }
+    }
+
+    if (persist) persistThemeSettings();
+    renderThemeChoices();
+
+    if (notify) Omni.toast.success(`Тема «${theme.name}» применена`);
+}
+
+function loadThemeSettings() {
+    try {
+        const saved = localStorage.getItem(THEME_STORAGE_KEY);
+        if (!saved) {
+            applyTheme(BUILT_IN_THEMES[0], { persist: false });
+            return;
+        }
+
+        const parsed = JSON.parse(saved);
+        if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.customThemes)) {
+            throw new Error("Формат сохранённых настроек темы повреждён.");
+        }
+
+        customThemes = parsed.customThemes.slice(0, 20).map((theme, index) => {
+            const normalized = normalizeThemeDefinition(theme);
+            return {
+                id: typeof theme.id === "string" ? theme.id : `custom-restored-${index}`,
+                ...normalized
+            };
+        });
+
+        const selected = findThemeById(parsed.activeThemeId);
+        applyTheme(selected, { persist: false });
+    } catch (error) {
+        customThemes = [];
+        applyTheme(BUILT_IN_THEMES[0], { persist: false });
+        Omni.toast.warning(`Не удалось загрузить сохранённую тему: ${error.message || error}`);
+    }
+}
+
+function createThemeChoice(theme) {
+    const card = document.createElement("article");
+    const isSelected = theme.id === activeThemeId;
+    card.className = `theme-choice${isSelected ? " theme-choice--selected" : ""}`;
+
+    const selectButton = document.createElement("button");
+    selectButton.className = "theme-choice__select";
+    selectButton.type = "button";
+    selectButton.setAttribute("aria-pressed", String(isSelected));
+    selectButton.setAttribute("aria-label", `Выбрать тему ${theme.name}`);
+
+    const preview = document.createElement("span");
+    preview.className = "theme-choice__preview";
+    for (const key of ["--bg-primary", "--bg-surface", "--accent", "--text-primary"]) {
+        const swatch = document.createElement("span");
+        swatch.className = "theme-choice__swatch";
+        swatch.style.backgroundColor = theme.colors[key];
+        preview.appendChild(swatch);
+    }
+
+    const copy = document.createElement("span");
+    copy.className = "theme-choice__copy";
+    const title = document.createElement("strong");
+    title.textContent = theme.name;
+    const description = document.createElement("span");
+    description.textContent = theme.description || (theme.id.startsWith("custom-") ? "Импортированная тема." : "Палитра Omni.");
+    copy.append(title, description);
+    selectButton.append(preview, copy);
+    selectButton.addEventListener("click", () => applyTheme(theme, { notify: true }));
+    card.appendChild(selectButton);
+
+    if (theme.id.startsWith("custom-")) {
+        const removeButton = document.createElement("button");
+        removeButton.className = "btn btn--ghost btn--small theme-choice__remove";
+        removeButton.type = "button";
+        removeButton.textContent = "Удалить";
+        removeButton.setAttribute("aria-label", `Удалить тему ${theme.name}`);
+        removeButton.addEventListener("click", () => {
+            customThemes = customThemes.filter(item => item.id !== theme.id);
+            if (activeThemeId === theme.id) {
+                applyTheme(BUILT_IN_THEMES[0]);
+            } else {
+                persistThemeSettings();
+                renderThemeChoices();
+            }
+            Omni.toast.info(`Тема «${theme.name}» удалена`);
+        });
+        card.appendChild(removeButton);
+    }
+
+    return card;
+}
+
+function renderThemeChoices() {
+    const list = themeSettingsEl.querySelector("[data-theme-list]");
+    if (!list) return;
+
+    list.replaceChildren(...BUILT_IN_THEMES.map(createThemeChoice), ...customThemes.map(createThemeChoice));
+}
+
+function openThemeSettings() {
+    previousThemeFocus = document.activeElement;
+    renderThemeChoices();
+    themeSettingsEl.hidden = false;
+    themeSettingsEl.querySelector("[data-theme-close]").focus();
+}
+
+function closeThemeSettings() {
+    themeSettingsEl.hidden = true;
+    if (previousThemeFocus instanceof HTMLElement) previousThemeFocus.focus();
+}
+
+function exportTheme() {
+    const theme = activeTheme || BUILT_IN_THEMES[0];
+    const contents = JSON.stringify({
+        format: "omni-theme",
+        version: 1,
+        theme: {
+            name: theme.name,
+            appearance: theme.appearance,
+            colors: theme.colors
+        }
+    }, null, 2);
+    const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
+    const link = document.createElement("a");
+    const filename = theme.name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "omni-theme";
+    link.href = url;
+    link.download = `${filename}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    Omni.toast.success(`Тема «${theme.name}» экспортирована`);
+}
+
+function initThemeSettings() {
+    const fileInput = themeSettingsEl.querySelector("[data-theme-file]");
+
+    btnThemeSettings.addEventListener("click", openThemeSettings);
+    themeSettingsEl.querySelector("[data-theme-close]").addEventListener("click", closeThemeSettings);
+    themeSettingsEl.addEventListener("click", event => {
+        if (event.target === themeSettingsEl) closeThemeSettings();
+    });
+    themeSettingsEl.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            closeThemeSettings();
+        }
+    });
+    themeSettingsEl.querySelector("[data-theme-export]").addEventListener("click", exportTheme);
+    themeSettingsEl.querySelector("[data-theme-import]").addEventListener("click", () => {
+        fileInput.value = "";
+        fileInput.click();
+    });
+    fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        if (file.size > 64 * 1024) {
+            Omni.toast.error("Файл темы слишком большой (максимум 64 КБ).");
+            return;
+        }
+
+        try {
+            const documentData = JSON.parse(await file.text());
+            if (!documentData || documentData.format !== "omni-theme" || documentData.version !== 1) {
+                throw new Error('Ожидается файл Omni Theme версии 1.');
+            }
+
+            const normalized = normalizeThemeDefinition(documentData.theme);
+            const existing = customThemes.find(theme => theme.name.toLowerCase() === normalized.name.toLowerCase());
+            const importedTheme = {
+                id: existing?.id || `custom-${Date.now()}-${++customThemeSequence}`,
+                ...normalized
+            };
+            customThemes = existing
+                ? customThemes.map(theme => theme.id === existing.id ? importedTheme : theme)
+                : [...customThemes, importedTheme].slice(-20);
+
+            applyTheme(importedTheme);
+            Omni.toast.success(`Тема «${importedTheme.name}» импортирована`);
+        } catch (error) {
+            Omni.toast.error(`Не удалось импортировать тему: ${error.message || error}`);
+        }
+    });
+
+    loadThemeSettings();
+}
 
 // ── Global Omni API ───────────────────────────────────────────────────────────
 
@@ -1164,6 +1503,7 @@ refreshPlugins = async function() {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+initThemeSettings();
 appendLog("system", "info", "Omni Core initialized");
 refreshPlugins();
 
