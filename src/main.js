@@ -17,6 +17,8 @@ const themeSettingsEl = document.getElementById("theme-settings");
 // Tabs
 const tabsNavEl = document.querySelector(".tabs-nav");
 const uiPluginTabsEl = document.getElementById("ui-plugin-tabs");
+const studioNavEl = document.getElementById("studio-nav");
+const studioHomeEl = document.getElementById("studio-home");
 
 // Send panel
 const sendPanelEl = document.getElementById("send-panel");
@@ -67,8 +69,8 @@ const BUILT_IN_THEMES = [
     {
         id: "classic",
         name: "Классическая",
-        appearance: "classic",
-        description: "Знакомый оригинальный вид Omni.",
+        layout: "classic",
+        description: "Исходная компоновка Omni без изменений.",
         colors: {
             "--bg-primary": "#0d0f13",
             "--bg-secondary": "#14171e",
@@ -92,8 +94,8 @@ const BUILT_IN_THEMES = [
     {
         id: "workbench",
         name: "Workbench",
-        appearance: "workbench",
-        description: "Свежая графитово-зелёная тема с ярким лаймовым акцентом.",
+        layout: "workbench",
+        description: "Рабочая консоль с панелями, вкладками и новым оформлением.",
         colors: {
             "--bg-primary": "#0b1110",
             "--bg-secondary": "#111b18",
@@ -113,6 +115,31 @@ const BUILT_IN_THEMES = [
             "--border": "#2a3c32",
             "--border-accent": "#48644f"
         }
+    },
+    {
+        id: "studio",
+        name: "Studio",
+        layout: "studio",
+        description: "Отдельная навигация, главная панель и быстрый обзор плагинов.",
+        colors: {
+            "--bg-primary": "#101218",
+            "--bg-secondary": "#171a23",
+            "--bg-surface": "#202531",
+            "--bg-surface-hover": "#2a3241",
+            "--bg-accent": "#30384a",
+            "--text-primary": "#eef0f6",
+            "--text-secondary": "#a0a8ba",
+            "--text-muted": "#6f788c",
+            "--accent": "#8f9cff",
+            "--accent-hover": "#a8b2ff",
+            "--accent-glow": "#8f9cff26",
+            "--success": "#55d6a1",
+            "--warning": "#f0bf67",
+            "--error": "#f17883",
+            "--info": "#70baff",
+            "--border": "#2d3442",
+            "--border-accent": "#505c73"
+        }
     }
 ];
 
@@ -125,13 +152,14 @@ function normalizeThemeDefinition(candidate) {
     if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) {
         throw new Error("Название темы должно содержать от 1 до 40 символов.");
     }
-    if (candidate.appearance !== "classic" && candidate.appearance !== "workbench") {
-        throw new Error('Поле "appearance" должно быть "classic" или "workbench".');
+    const layout = candidate.layout || candidate.appearance;
+    if (!BUILT_IN_THEMES.some(theme => theme.layout === layout)) {
+        throw new Error('Поле "layout" должно быть "classic", "workbench" или "studio".');
     }
 
-    const colors = candidate.colors;
-    if (!colors || typeof colors !== "object" || Array.isArray(colors)) {
-        throw new Error('В теме отсутствует объект "colors".');
+    const colors = candidate.colors || {};
+    if (typeof colors !== "object" || Array.isArray(colors)) {
+        throw new Error('Поле "colors" должно быть объектом.');
     }
 
     const unknownColor = Object.keys(colors).find(key => !THEME_COLOR_KEYS.includes(key));
@@ -139,9 +167,10 @@ function normalizeThemeDefinition(candidate) {
         throw new Error(`Неизвестный параметр цвета: ${unknownColor}`);
     }
 
-    const normalizedColors = {};
+    const baseTheme = BUILT_IN_THEMES.find(theme => theme.layout === layout);
+    const normalizedColors = { ...baseTheme.colors };
     for (const key of THEME_COLOR_KEYS) {
-        const value = colors[key];
+        const value = colors[key] ?? normalizedColors[key];
         if (typeof value !== "string" || !/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/.test(value)) {
             throw new Error(`Цвет "${key}" должен быть HEX-кодом #RRGGBB или #RRGGBBAA.`);
         }
@@ -150,7 +179,7 @@ function normalizeThemeDefinition(candidate) {
 
     return {
         name,
-        appearance: candidate.appearance,
+        layout,
         colors: normalizedColors
     };
 }
@@ -165,10 +194,10 @@ function persistThemeSettings() {
     try {
         localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({
             activeThemeId,
-            customThemes: customThemes.map(({ id, name, appearance, colors }) => ({
+            customThemes: customThemes.map(({ id, name, layout, colors }) => ({
                 id,
                 name,
-                appearance,
+                layout,
                 colors
             }))
         }));
@@ -180,7 +209,7 @@ function persistThemeSettings() {
 function applyTheme(theme, { persist = true, notify = false } = {}) {
     activeTheme = theme;
     activeThemeId = theme.id;
-    document.documentElement.dataset.theme = theme.appearance;
+    document.body.dataset.theme = theme.layout;
 
     for (const key of THEME_COLOR_KEYS) {
         if (theme.id === "classic") {
@@ -190,8 +219,15 @@ function applyTheme(theme, { persist = true, notify = false } = {}) {
         }
     }
 
+    if (theme.layout === "studio" && currentTab !== "studio-home") {
+        switchTab("studio-home");
+    } else if (theme.layout !== "studio" && currentTab === "studio-home") {
+        switchTab("console");
+    }
+
     if (persist) persistThemeSettings();
     renderThemeChoices();
+    renderStudioHome();
 
     if (notify) Omni.toast.success(`Тема «${theme.name}» применена`);
 }
@@ -200,7 +236,7 @@ function loadThemeSettings() {
     try {
         const saved = localStorage.getItem(THEME_STORAGE_KEY);
         if (!saved) {
-            applyTheme(BUILT_IN_THEMES[0], { persist: false });
+            applyTheme(BUILT_IN_THEMES[2], { persist: false });
             return;
         }
 
@@ -238,20 +274,25 @@ function createThemeChoice(theme) {
     selectButton.setAttribute("aria-label", `Выбрать тему ${theme.name}`);
 
     const preview = document.createElement("span");
-    preview.className = "theme-choice__preview";
-    for (const key of ["--bg-primary", "--bg-surface", "--accent", "--text-primary"]) {
-        const swatch = document.createElement("span");
-        swatch.className = "theme-choice__swatch";
-        swatch.style.backgroundColor = theme.colors[key];
-        preview.appendChild(swatch);
+    preview.className = `theme-choice__preview theme-choice__preview--${theme.layout}`;
+    preview.setAttribute("aria-hidden", "true");
+    for (const className of ["theme-choice__preview-sidebar", "theme-choice__preview-main", "theme-choice__preview-accent"]) {
+        const shape = document.createElement("span");
+        shape.className = className;
+        if (className.endsWith("sidebar")) shape.style.backgroundColor = theme.colors["--bg-secondary"];
+        if (className.endsWith("main")) shape.style.backgroundColor = theme.colors["--bg-surface"];
+        if (className.endsWith("accent")) shape.style.backgroundColor = theme.colors["--accent"];
+        preview.appendChild(shape);
     }
+    preview.style.backgroundColor = theme.colors["--bg-primary"];
+    preview.style.borderColor = theme.colors["--border"];
 
     const copy = document.createElement("span");
     copy.className = "theme-choice__copy";
     const title = document.createElement("strong");
     title.textContent = theme.name;
     const description = document.createElement("span");
-    description.textContent = theme.description || (theme.id.startsWith("custom-") ? "Импортированная тема." : "Палитра Omni.");
+    description.textContent = theme.description || `Компоновка: ${theme.layout}.`;
     copy.append(title, description);
     selectButton.append(preview, copy);
     selectButton.addEventListener("click", () => applyTheme(theme, { notify: true }));
@@ -286,15 +327,100 @@ function renderThemeChoices() {
     list.replaceChildren(...BUILT_IN_THEMES.map(createThemeChoice), ...customThemes.map(createThemeChoice));
 }
 
+function updateStudioNavigation() {
+    if (!studioNavEl) return;
+
+    const activeTab = currentTab === "task-manager"
+        ? "task-manager"
+        : currentTab === "studio-home"
+            ? "studio-home"
+            : currentTab === "console" || document.querySelector(`[data-tab-content="${CSS.escape(currentTab)}"]`)
+                ? "console"
+                : "";
+
+    const overlayTab = themeSettingsEl.hidden
+        ? document.querySelector(".plugin-hub-backdrop") ? "catalog" : ""
+        : "appearance";
+    const selectedTab = overlayTab || activeTab;
+
+    studioNavEl.querySelectorAll("[data-studio-tab]").forEach(button => {
+        const isActive = button.dataset.studioTab === selectedTab;
+        button.classList.toggle("studio-nav__item--active", isActive);
+        button.setAttribute("aria-current", isActive ? "page" : "false");
+    });
+}
+
+function renderStudioHome() {
+    if (!studioHomeEl) return;
+
+    const runningPlugins = plugins.filter(isPluginRunning);
+    studioHomeEl.querySelector("[data-studio-total]").textContent = String(plugins.length);
+    studioHomeEl.querySelector("[data-studio-running]").textContent = String(runningPlugins.length);
+    studioHomeEl.querySelector("[data-studio-stopped]").textContent = String(plugins.length - runningPlugins.length);
+    studioNavEl.querySelector("[data-studio-nav-status]").textContent = runningPlugins.length
+        ? `${runningPlugins.length} активно`
+        : "Нет активных процессов";
+
+    const grid = document.getElementById("studio-plugin-grid");
+    if (plugins.length === 0) {
+        grid.innerHTML = `
+            <div class="studio-empty">
+                <span aria-hidden="true">◈</span>
+                <strong>Плагины появятся здесь</strong>
+                <span>Импортируй плагин в каталоге или обнови список.</span>
+                <button class="btn btn--ghost btn--small" type="button" data-studio-empty-catalog>Открыть каталог</button>
+            </div>`;
+    } else {
+        grid.innerHTML = plugins.slice(0, 4).map(plugin => {
+            const running = isPluginRunning(plugin);
+            const name = plugin.display_name || formatPluginName(plugin.name);
+            return `
+                <article class="studio-plugin">
+                    <span class="studio-plugin__icon">${getPluginIcon(plugin)}</span>
+                    <span class="studio-plugin__info">
+                        <strong title="${escapeAttr(name)}">${escapeHtml(name)}</strong>
+                        <small>${escapeHtml(plugin.type || "worker")} · ${escapeHtml(plugin.state)}</small>
+                    </span>
+                    <button class="studio-plugin__action ${running ? "studio-plugin__action--running" : ""}"
+                        type="button"
+                        data-studio-action="${running ? "stop" : "start"}"
+                        data-studio-name="${escapeAttr(plugin.name)}"
+                        title="${running ? "Остановить" : "Запустить"}"
+                        aria-label="${running ? "Остановить" : "Запустить"} ${escapeAttr(name)}">${running ? "■" : "▶"}</button>
+                </article>`;
+        }).join("");
+    }
+
+    const activity = document.getElementById("studio-activity");
+    const entries = Array.from(logOutputEl.children).slice(-5).reverse();
+    activity.innerHTML = entries.length
+        ? entries.map(entry => {
+            const time = entry.querySelector(".log-entry__time")?.textContent || "";
+            const message = entry.textContent.replace(time, "").trim();
+            const level = Array.from(entry.classList).find(name => name.startsWith("log-entry--") && name !== "log-entry--system");
+            return `
+                <article class="studio-activity__item">
+                    <span class="studio-activity__marker ${escapeAttr(level || "")}"></span>
+                    <span class="studio-activity__message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>
+                    <time>${escapeHtml(time)}</time>
+                </article>`;
+        }).join("")
+        : '<div class="studio-activity__empty">Событий пока нет.</div>';
+
+    updateStudioNavigation();
+}
+
 function openThemeSettings() {
     previousThemeFocus = document.activeElement;
     renderThemeChoices();
     themeSettingsEl.hidden = false;
+    updateStudioNavigation();
     themeSettingsEl.querySelector("[data-theme-close]").focus();
 }
 
 function closeThemeSettings() {
     themeSettingsEl.hidden = true;
+    updateStudioNavigation();
     if (previousThemeFocus instanceof HTMLElement) previousThemeFocus.focus();
 }
 
@@ -302,10 +428,10 @@ function exportTheme() {
     const theme = activeTheme || BUILT_IN_THEMES[0];
     const contents = JSON.stringify({
         format: "omni-theme",
-        version: 1,
+        version: 2,
         theme: {
             name: theme.name,
-            appearance: theme.appearance,
+            layout: theme.layout,
             colors: theme.colors
         }
     }, null, 2);
@@ -350,8 +476,8 @@ function initThemeSettings() {
 
         try {
             const documentData = JSON.parse(await file.text());
-            if (!documentData || documentData.format !== "omni-theme" || documentData.version !== 1) {
-                throw new Error('Ожидается файл Omni Theme версии 1.');
+            if (!documentData || documentData.format !== "omni-theme" || ![1, 2].includes(documentData.version)) {
+                throw new Error('Ожидается файл Omni Theme версии 1 или 2.');
             }
 
             const normalized = normalizeThemeDefinition(documentData.theme);
@@ -371,6 +497,36 @@ function initThemeSettings() {
         }
     });
 
+    studioNavEl.addEventListener("click", event => {
+        const button = event.target.closest("[data-studio-tab]");
+        if (!button) return;
+
+        const tab = button.dataset.studioTab;
+        if (tab === "catalog") {
+            openPluginHub();
+        } else if (tab === "appearance") {
+            openThemeSettings();
+        } else {
+            switchTab(tab);
+        }
+    });
+
+    studioHomeEl.addEventListener("click", event => {
+        if (event.target.closest("[data-studio-tab='console']")) switchTab("console");
+        if (event.target.closest("[data-studio-empty-catalog]")) openPluginHub();
+    });
+
+    document.getElementById("studio-open-plugins").addEventListener("click", () => switchTab("console"));
+    document.getElementById("studio-open-catalog").addEventListener("click", openPluginHub);
+    document.getElementById("studio-plugin-grid").addEventListener("click", event => {
+        const button = event.target.closest("[data-studio-action]");
+        if (!button) return;
+
+        const plugin = plugins.find(item => item.name === button.dataset.studioName);
+        if (!plugin) return;
+        if (button.dataset.studioAction === "start") startPlugin(plugin.name);
+        if (button.dataset.studioAction === "stop") stopPlugin(plugin.name);
+    });
     loadThemeSettings();
 }
 
@@ -404,6 +560,7 @@ async function refreshPlugins() {
         renderPlugins();
         updateSendPanel();
         updateUIPluginTabs();
+        renderStudioHome();
         appendLog("system", "info", `Discovered ${plugins.length} plugin(s)`);
     } catch (err) {
         appendLog("system", "error", `Failed to discover plugins: ${err}`);
@@ -594,6 +751,7 @@ function appendLog(plugin, level, text) {
     entry.innerHTML = `<span class="log-entry__time">${time}</span><span class="log-entry__plugin">[${escapeHtml(String(plugin))}]</span>${escapeHtml(String(text))}`;
     logOutputEl.appendChild(entry);
     logOutputEl.scrollTop = logOutputEl.scrollHeight;
+    renderStudioHome();
 }
 
 function escapeHtml(str) {
@@ -672,7 +830,10 @@ listen("plugin-event", (event) => {
 // ── DOM Listeners ─────────────────────────────────────────────────────────────
 
 btnRefresh.addEventListener("click", refreshPlugins);
-btnClearLog.addEventListener("click", () => { logOutputEl.innerHTML = ""; });
+btnClearLog.addEventListener("click", () => {
+    logOutputEl.innerHTML = "";
+    renderStudioHome();
+});
 btnSchemaSubmit.addEventListener("click", submitSendPanel);
 btnTaskManager.addEventListener("click", () => switchTab("task-manager"));
 btnPluginHub.addEventListener("click", openPluginHub);
@@ -725,6 +886,7 @@ function switchTab(tabId) {
     if (tabContent) tabContent.classList.add("tab-content--active");
     
     currentTab = tabId;
+    updateStudioNavigation();
 }
 
 function updateUIPluginTabs() {
@@ -734,7 +896,7 @@ function updateUIPluginTabs() {
     );
 
     // Show tabs only when there are running app plugins
-    tabsNavEl.hidden = appPlugins.length === 0;
+    tabsNavEl.hidden = appPlugins.length === 0 && activeTheme?.layout !== "workbench";
 
     // Remove old tabs
     Array.from(tabsNavEl.querySelectorAll(".tab-btn")).forEach(btn => {
