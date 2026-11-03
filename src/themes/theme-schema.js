@@ -1,0 +1,19 @@
+export const themeColorKeys = [
+    "--bg-primary",
+    "--bg-secondary",
+    "--bg-surface",
+    "--bg-surface-hover",
+    "--bg-accent",
+    "--text-primary",
+    "--text-secondary",
+    "--text-muted",
+    "--accent",
+    "--accent-hover",
+    "--accent-glow",
+    "--success",
+    "--warning",
+    "--error",
+    "--info",
+    "--border",
+    "--border-accent"
+];

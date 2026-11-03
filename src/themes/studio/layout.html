@@ -1,0 +1,69 @@
+<div class="studio-shell" id="studio-shell" hidden>
+    <aside class="studio-nav" id="studio-nav" aria-label="Навигация рабочей области">
+        <div class="studio-nav__brand"><span aria-hidden="true">◈</span><strong>OMNI</strong><small>STUDIO</small></div>
+        <div class="studio-nav__section">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+        <button class="studio-nav__item studio-nav__item--active" type="button" data-studio-tab="studio-home"><span aria-hidden="true">⌂</span>Обзор</button>
+        <button class="studio-nav__item" type="button" data-studio-tab="console"><span aria-hidden="true">▦</span>Плагины</button>
+        <div class="studio-nav__plugins" id="studio-plugin-nav" aria-label="Открытые плагины"></div>
+        <button class="studio-nav__item" type="button" data-studio-tab="task-manager"><span aria-hidden="true">⌘</span>Задачи</button>
+        <button class="studio-nav__item" type="button" data-studio-tab="catalog"><span aria-hidden="true">⬡</span>Каталог</button>
+        <div class="studio-nav__spacer"></div>
+        <button class="studio-nav__item" type="button" data-studio-tab="appearance"><span aria-hidden="true">⚙</span>Настройки интерфейса</button>
+        <div class="studio-nav__footer"><span class="studio-nav__status"></span><span data-studio-nav-status>Загрузка плагинов…</span></div>
+    </aside>
+    <div class="studio-shell__main">
+        <header class="studio-topbar">
+            <div class="studio-topbar__page">
+                <span class="studio-topbar__mark" aria-hidden="true">◈</span>
+                <div>
+                    <p class="studio-topbar__eyebrow">OMNI STUDIO</p>
+                    <h1 id="studio-page-title">Обзор</h1>
+                </div>
+            </div>
+            <div class="studio-topbar__actions">
+                <button class="studio-topbar__button" id="studio-refresh" type="button" title="Обновить список плагинов" aria-label="Обновить список плагинов">
+                    <span aria-hidden="true">↻</span>
+                </button>
+                <button class="studio-topbar__button studio-topbar__button--primary" id="studio-open-themes" type="button">
+                    <span aria-hidden="true">⚙</span> Внешний вид
+                </button>
+            </div>
+        </header>
+        <main class="studio-shell__stage" id="studio-stage">
+            <section class="tab-content studio-home" id="studio-home" data-tab-content="studio-home">
+                <header class="studio-home__welcome">
+                    <div>
+                        <p class="studio-home__eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО OMNI</p>
+                        <h2>Всё под контролем.</h2>
+                        <p>Плагины, процессы и события — в одном месте.</p>
+                    </div>
+                    <div class="studio-home__welcome-actions">
+                        <button class="btn btn--ghost" id="studio-open-catalog" type="button">Открыть каталог</button>
+                        <button class="btn btn--primary" id="studio-open-plugins" type="button">Плагины <span aria-hidden="true">→</span></button>
+                    </div>
+                </header>
+                <div class="studio-home__stats">
+                    <article class="studio-stat"><span>Всего плагинов</span><strong data-studio-total>0</strong><small>обнаружено в Omni</small></article>
+                    <article class="studio-stat studio-stat--active"><span>Запущено</span><strong data-studio-running>0</strong><small>работают сейчас</small></article>
+                    <article class="studio-stat"><span>Остановлено</span><strong data-studio-stopped>0</strong><small>готовы к запуску</small></article>
+                </div>
+                <div class="studio-home__sections">
+                    <section class="studio-panel studio-panel--plugins">
+                        <header class="studio-panel__header">
+                            <div><p class="studio-home__eyebrow">ТВОИ ИНСТРУМЕНТЫ</p><h3>Плагины</h3></div>
+                            <button class="btn btn--ghost btn--small" type="button" data-studio-tab="console">Все плагины →</button>
+                        </header>
+                        <div class="studio-plugin-grid" id="studio-plugin-grid"></div>
+                    </section>
+                    <section class="studio-panel studio-panel--activity">
+                        <header class="studio-panel__header">
+                            <div><p class="studio-home__eyebrow">ПОСЛЕДНИЕ СОБЫТИЯ</p><h3>Активность</h3></div>
+                            <button class="btn btn--ghost btn--small" type="button" data-studio-tab="console">К консоли →</button>
+                        </header>
+                        <div class="studio-activity" id="studio-activity"></div>
+                    </section>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>

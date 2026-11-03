@@ -1,0 +1,26 @@
+<div id="toast-container" class="toast-container"></div>
+<section id="theme-settings" class="theme-settings-backdrop" role="dialog" aria-modal="true" aria-labelledby="theme-settings-title" hidden>
+    <div class="theme-settings">
+        <header class="theme-settings__header">
+            <div>
+                <p class="theme-settings__eyebrow">ВНЕШНИЙ ВИД OMNI</p>
+                <h2 id="theme-settings-title">Темы оформления</h2>
+                <p>Каждая тема меняет компоновку и оформление всего интерфейса.</p>
+            </div>
+            <button class="btn btn--ghost" type="button" data-theme-close aria-label="Закрыть настройки">✕</button>
+        </header>
+        <div class="theme-settings__themes" data-theme-list></div>
+        <div class="theme-settings__import-export">
+            <div>
+                <h3>Свои темы</h3>
+                <p>JSON сохраняет компоновку интерфейса и её палитру.</p>
+            </div>
+            <div class="theme-settings__actions">
+                <button class="btn btn--ghost" type="button" data-theme-export>Экспортировать тему</button>
+                <button class="btn btn--primary" type="button" data-theme-import>Импортировать JSON</button>
+                <input data-theme-file type="file" accept=".json,application/json" hidden />
+            </div>
+        </div>
+        <p class="theme-settings__hint">Тема меняет компоновку и внешний вид всего приложения. Импорт разрешает только встроенные макеты и HEX-палитру — произвольный CSS не выполняется.</p>
+    </div>
+</section>

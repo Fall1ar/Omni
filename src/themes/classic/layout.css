@@ -1,0 +1,7 @@
+body[data-theme="classic"] #classic-shell {
+    color-scheme: dark;
+}
+
+body[data-theme="classic"] #classic-shell[hidden] {
+    display: none !important;
+}

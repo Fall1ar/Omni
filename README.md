@@ -8,7 +8,7 @@ The core app discovers plugins from `plugins/`, starts them as child Python proc
 
 - Plugin Hub: import, export, collections, marketplace-style installed plugin view, and plugin template export.
 - Task Manager: process table with status, PID, type, uptime, path, search, sorting, start, end task, and restart.
-- Themes: switch between Classic and Workbench, save the selection between launches, and import/export custom JSON palettes.
+- Themes: switch between Classic, Workbench, and Studio interface layouts; selection persists between launches, and complete themes can be imported/exported as validated JSON. Each layout has its own HTML, CSS, and JavaScript under `src/themes/`; shared plugin operations stay in the application core.
 - Script Runner plugin: runs one selected `.py` file and keeps recent files for reuse.
 - Python SDK: `shared/omni_sdk/bridge.py` gives plugins a small request/response bridge.
 
@@ -63,7 +63,8 @@ npm run build
 
 ```text
 Omni/
-  src/                    Frontend UI
+  src/                    Frontend entry point and shared application core
+    themes/               Independent Classic, Workbench, and Studio layouts
   src-tauri/              Rust/Tauri core
   plugins/                Local plugins
   shared/omni_sdk/        Python SDK for plugins

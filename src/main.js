@@ -1,4 +1,9 @@
-// main.js — UI logic for Omni Plugin Manager
+import { classicLayout, themeDefinition as classicTheme } from "./themes/classic/layout.js";
+import { workbenchLayout, themeDefinition as workbenchTheme, bindWorkbenchActions, updateWorkbenchNavigation } from "./themes/workbench/layout.js";
+import { studioLayout, themeDefinition as studioTheme, bindStudioActions, updateStudioNavigation as updateStudioLayoutNavigation, renderStudioHome as renderStudioLayoutHome } from "./themes/studio/layout.js";
+import { themeColorKeys as THEME_COLOR_KEYS } from "./themes/theme-schema.js";
+
+// main.js — shared application logic for Omni Plugin Manager
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -17,8 +22,17 @@ const themeSettingsEl = document.getElementById("theme-settings");
 // Tabs
 const tabsNavEl = document.querySelector(".tabs-nav");
 const uiPluginTabsEl = document.getElementById("ui-plugin-tabs");
-const studioNavEl = document.getElementById("studio-nav");
-const studioHomeEl = document.getElementById("studio-home");
+const appEl = document.querySelector(".app");
+const themeLayouts = {
+    classic: classicLayout,
+    workbench: workbenchLayout,
+    studio: studioLayout
+};
+const themeStylesheets = {
+    classic: document.getElementById("theme-classic-stylesheet"),
+    workbench: document.getElementById("theme-workbench-stylesheet"),
+    studio: document.getElementById("theme-studio-stylesheet")
+};
 
 // Send panel
 const sendPanelEl = document.getElementById("send-panel");
@@ -45,103 +59,7 @@ const scriptRunnerRequests = new Map();
 const scriptRunnerEarlyResults = new Map();
 
 const THEME_STORAGE_KEY = "omni.theme-settings.v1";
-const THEME_COLOR_KEYS = [
-    "--bg-primary",
-    "--bg-secondary",
-    "--bg-surface",
-    "--bg-surface-hover",
-    "--bg-accent",
-    "--text-primary",
-    "--text-secondary",
-    "--text-muted",
-    "--accent",
-    "--accent-hover",
-    "--accent-glow",
-    "--success",
-    "--warning",
-    "--error",
-    "--info",
-    "--border",
-    "--border-accent"
-];
-
-const BUILT_IN_THEMES = [
-    {
-        id: "classic",
-        name: "Классическая",
-        layout: "classic",
-        description: "Исходная компоновка Omni без изменений.",
-        colors: {
-            "--bg-primary": "#0d0f13",
-            "--bg-secondary": "#14171e",
-            "--bg-surface": "#1a1e28",
-            "--bg-surface-hover": "#222738",
-            "--bg-accent": "#2d3348",
-            "--text-primary": "#e4e6ef",
-            "--text-secondary": "#8b90a5",
-            "--text-muted": "#565b73",
-            "--accent": "#6c7eff",
-            "--accent-hover": "#8b99ff",
-            "--accent-glow": "#6c7eff26",
-            "--success": "#3dd68c",
-            "--warning": "#ffc246",
-            "--error": "#ff5e6c",
-            "--info": "#5eb5ff",
-            "--border": "#252a3a",
-            "--border-accent": "#3d4460"
-        }
-    },
-    {
-        id: "workbench",
-        name: "Workbench",
-        layout: "workbench",
-        description: "Рабочая консоль с панелями, вкладками и новым оформлением.",
-        colors: {
-            "--bg-primary": "#0b1110",
-            "--bg-secondary": "#111b18",
-            "--bg-surface": "#192621",
-            "--bg-surface-hover": "#24352d",
-            "--bg-accent": "#294237",
-            "--text-primary": "#e6f2e9",
-            "--text-secondary": "#a3b8a8",
-            "--text-muted": "#6f8777",
-            "--accent": "#b2ed78",
-            "--accent-hover": "#c7ff91",
-            "--accent-glow": "#b2ed7826",
-            "--success": "#79dfa0",
-            "--warning": "#f4c66e",
-            "--error": "#ff8585",
-            "--info": "#7bcaff",
-            "--border": "#2a3c32",
-            "--border-accent": "#48644f"
-        }
-    },
-    {
-        id: "studio",
-        name: "Studio",
-        layout: "studio",
-        description: "Отдельная навигация, главная панель и быстрый обзор плагинов.",
-        colors: {
-            "--bg-primary": "#101218",
-            "--bg-secondary": "#171a23",
-            "--bg-surface": "#202531",
-            "--bg-surface-hover": "#2a3241",
-            "--bg-accent": "#30384a",
-            "--text-primary": "#eef0f6",
-            "--text-secondary": "#a0a8ba",
-            "--text-muted": "#6f788c",
-            "--accent": "#8f9cff",
-            "--accent-hover": "#a8b2ff",
-            "--accent-glow": "#8f9cff26",
-            "--success": "#55d6a1",
-            "--warning": "#f0bf67",
-            "--error": "#f17883",
-            "--info": "#70baff",
-            "--border": "#2d3442",
-            "--border-accent": "#505c73"
-        }
-    }
-];
+const BUILT_IN_THEMES = [classicTheme, workbenchTheme, studioTheme];
 
 function normalizeThemeDefinition(candidate) {
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
@@ -210,6 +128,9 @@ function applyTheme(theme, { persist = true, notify = false } = {}) {
     activeTheme = theme;
     activeThemeId = theme.id;
     document.body.dataset.theme = theme.layout;
+    for (const [layout, stylesheet] of Object.entries(themeStylesheets)) {
+        stylesheet.disabled = theme.layout !== layout;
+    }
 
     for (const key of THEME_COLOR_KEYS) {
         if (theme.id === "classic") {
@@ -219,15 +140,30 @@ function applyTheme(theme, { persist = true, notify = false } = {}) {
         }
     }
 
+    for (const layout of Object.values(themeLayouts)) layout.unmount();
+    themeLayouts[theme.layout].mount();
+
     if (theme.layout === "studio" && currentTab !== "studio-home") {
         switchTab("studio-home");
     } else if (theme.layout !== "studio" && currentTab === "studio-home") {
         switchTab("console");
     }
 
+    updateUIPluginTabs();
+    updateStudioNavigation();
     if (persist) persistThemeSettings();
     renderThemeChoices();
-    renderStudioHome();
+    renderStudioLayoutHome({
+        plugins,
+        logOutputEl,
+        isPluginRunning,
+        formatPluginName,
+        getPluginIcon,
+        escapeHtml,
+        escapeAttr,
+        themeSettingsEl,
+        currentTab
+    });
 
     if (notify) Omni.toast.success(`Тема «${theme.name}» применена`);
 }
@@ -328,86 +264,22 @@ function renderThemeChoices() {
 }
 
 function updateStudioNavigation() {
-    if (!studioNavEl) return;
-
-    const activeTab = currentTab === "task-manager"
-        ? "task-manager"
-        : currentTab === "studio-home"
-            ? "studio-home"
-            : currentTab === "console" || document.querySelector(`[data-tab-content="${CSS.escape(currentTab)}"]`)
-                ? "console"
-                : "";
-
-    const overlayTab = themeSettingsEl.hidden
-        ? document.querySelector(".plugin-hub-backdrop") ? "catalog" : ""
-        : "appearance";
-    const selectedTab = overlayTab || activeTab;
-
-    studioNavEl.querySelectorAll("[data-studio-tab]").forEach(button => {
-        const isActive = button.dataset.studioTab === selectedTab;
-        button.classList.toggle("studio-nav__item--active", isActive);
-        button.setAttribute("aria-current", isActive ? "page" : "false");
-    });
+    updateStudioLayoutNavigation(currentTab, themeSettingsEl, plugins);
+    updateWorkbenchNavigation(currentTab, themeSettingsEl);
 }
 
 function renderStudioHome() {
-    if (!studioHomeEl) return;
-
-    const runningPlugins = plugins.filter(isPluginRunning);
-    studioHomeEl.querySelector("[data-studio-total]").textContent = String(plugins.length);
-    studioHomeEl.querySelector("[data-studio-running]").textContent = String(runningPlugins.length);
-    studioHomeEl.querySelector("[data-studio-stopped]").textContent = String(plugins.length - runningPlugins.length);
-    studioNavEl.querySelector("[data-studio-nav-status]").textContent = runningPlugins.length
-        ? `${runningPlugins.length} активно`
-        : "Нет активных процессов";
-
-    const grid = document.getElementById("studio-plugin-grid");
-    if (plugins.length === 0) {
-        grid.innerHTML = `
-            <div class="studio-empty">
-                <span aria-hidden="true">◈</span>
-                <strong>Плагины появятся здесь</strong>
-                <span>Импортируй плагин в каталоге или обнови список.</span>
-                <button class="btn btn--ghost btn--small" type="button" data-studio-empty-catalog>Открыть каталог</button>
-            </div>`;
-    } else {
-        grid.innerHTML = plugins.slice(0, 4).map(plugin => {
-            const running = isPluginRunning(plugin);
-            const name = plugin.display_name || formatPluginName(plugin.name);
-            return `
-                <article class="studio-plugin">
-                    <span class="studio-plugin__icon">${getPluginIcon(plugin)}</span>
-                    <span class="studio-plugin__info">
-                        <strong title="${escapeAttr(name)}">${escapeHtml(name)}</strong>
-                        <small>${escapeHtml(plugin.type || "worker")} · ${escapeHtml(plugin.state)}</small>
-                    </span>
-                    <button class="studio-plugin__action ${running ? "studio-plugin__action--running" : ""}"
-                        type="button"
-                        data-studio-action="${running ? "stop" : "start"}"
-                        data-studio-name="${escapeAttr(plugin.name)}"
-                        title="${running ? "Остановить" : "Запустить"}"
-                        aria-label="${running ? "Остановить" : "Запустить"} ${escapeAttr(name)}">${running ? "■" : "▶"}</button>
-                </article>`;
-        }).join("");
-    }
-
-    const activity = document.getElementById("studio-activity");
-    const entries = Array.from(logOutputEl.children).slice(-5).reverse();
-    activity.innerHTML = entries.length
-        ? entries.map(entry => {
-            const time = entry.querySelector(".log-entry__time")?.textContent || "";
-            const message = entry.textContent.replace(time, "").trim();
-            const level = Array.from(entry.classList).find(name => name.startsWith("log-entry--") && name !== "log-entry--system");
-            return `
-                <article class="studio-activity__item">
-                    <span class="studio-activity__marker ${escapeAttr(level || "")}"></span>
-                    <span class="studio-activity__message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>
-                    <time>${escapeHtml(time)}</time>
-                </article>`;
-        }).join("")
-        : '<div class="studio-activity__empty">Событий пока нет.</div>';
-
-    updateStudioNavigation();
+    renderStudioLayoutHome({
+        plugins,
+        logOutputEl,
+        isPluginRunning,
+        formatPluginName,
+        getPluginIcon,
+        escapeHtml,
+        escapeAttr,
+        themeSettingsEl,
+        currentTab
+    });
 }
 
 function openThemeSettings() {
@@ -497,36 +369,16 @@ function initThemeSettings() {
         }
     });
 
-    studioNavEl.addEventListener("click", event => {
-        const button = event.target.closest("[data-studio-tab]");
-        if (!button) return;
-
-        const tab = button.dataset.studioTab;
-        if (tab === "catalog") {
-            openPluginHub();
-        } else if (tab === "appearance") {
-            openThemeSettings();
-        } else {
-            switchTab(tab);
-        }
+    bindStudioActions({
+        switchTab,
+        openPluginHub,
+        openThemeSettings,
+        refreshPlugins,
+        getPlugins: () => plugins,
+        startPlugin,
+        stopPlugin
     });
-
-    studioHomeEl.addEventListener("click", event => {
-        if (event.target.closest("[data-studio-tab='console']")) switchTab("console");
-        if (event.target.closest("[data-studio-empty-catalog]")) openPluginHub();
-    });
-
-    document.getElementById("studio-open-plugins").addEventListener("click", () => switchTab("console"));
-    document.getElementById("studio-open-catalog").addEventListener("click", openPluginHub);
-    document.getElementById("studio-plugin-grid").addEventListener("click", event => {
-        const button = event.target.closest("[data-studio-action]");
-        if (!button) return;
-
-        const plugin = plugins.find(item => item.name === button.dataset.studioName);
-        if (!plugin) return;
-        if (button.dataset.studioAction === "start") startPlugin(plugin.name);
-        if (button.dataset.studioAction === "stop") stopPlugin(plugin.name);
-    });
+    bindWorkbenchActions({ switchTab, openPluginHub, openThemeSettings });
     loadThemeSettings();
 }
 
@@ -896,7 +748,7 @@ function updateUIPluginTabs() {
     );
 
     // Show tabs only when there are running app plugins
-    tabsNavEl.hidden = appPlugins.length === 0 && activeTheme?.layout !== "workbench";
+    tabsNavEl.hidden = appPlugins.length === 0 && activeTheme?.layout !== "workbench" && activeTheme?.layout !== "studio";
 
     // Remove old tabs
     Array.from(tabsNavEl.querySelectorAll(".tab-btn")).forEach(btn => {
@@ -1416,6 +1268,11 @@ async function openPluginHub() {
         <div class="plugin-hub__grid" data-hub-grid></div>
       </section>`;
     document.body.appendChild(hub);
+    updateStudioNavigation();
+    const closeHub = () => {
+         hub.remove();
+         updateStudioNavigation();
+    };
     const grid = hub.querySelector("[data-hub-grid]");
     const render = () => {
         const query = hub.querySelector("[data-hub-search]").value.toLowerCase();
@@ -1423,7 +1280,10 @@ async function openPluginHub() {
         grid.innerHTML = selected.map(p => `<article class="hub-card"><div class="hub-card__top"><span>${getPluginIcon(p)}</span><span class="hub-card__state hub-card__state--${escapeAttr(p.state)}">${escapeHtml(p.state)}</span></div><h3>${escapeHtml(p.display_name || p.name)}</h3><p>${escapeHtml(p.description || "No description provided.")}</p><footer><span>${escapeHtml(p.type)} · v${escapeHtml(p.version)}</span><button class="btn btn--ghost btn--small" data-hub-export="${escapeAttr(p.name)}">Export</button></footer></article>`).join("") || '<div class="plugin-list__empty">No matching plugins</div>';
     };
     render();
-    hub.querySelector("[data-hub-close]").addEventListener("click", () => hub.remove());
+    hub.querySelector("[data-hub-close]").addEventListener("click", closeHub);
+    hub.addEventListener("click", event => {
+        if (event.target === hub) closeHub();
+    });
     hub.addEventListener("click", async event => {
         const exportButton = event.target.closest("[data-hub-export]");
         if (exportButton) {
@@ -1438,13 +1298,13 @@ async function openPluginHub() {
     });
     hub.querySelector("[data-hub-new-folder]").addEventListener("click", async () => {
         const name = window.prompt("Collection name:"); if (!name) return;
-        try { await invoke("create_collection", { name }); hub.remove(); await refreshPlugins(); openPluginHub(); } catch (err) { Omni.toast.error(String(err)); }
+        try { await invoke("create_collection", { name }); closeHub(); await refreshPlugins(); openPluginHub(); } catch (err) { Omni.toast.error(String(err)); }
     });
     hub.querySelector("[data-hub-import]").addEventListener("click", async () => {
         const source = hub.querySelector("[data-hub-path]").value.trim();
         const collection = hub.querySelector("[data-hub-collection]").value || null;
         if (!source) return Omni.toast.warning("Enter a plugin folder path");
-        try { await invoke("import_plugin", { source, collection }); hub.remove(); await refreshPlugins(); Omni.toast.success("Plugin imported"); } catch (err) { Omni.toast.error(String(err)); }
+        try { await invoke("import_plugin", { source, collection }); closeHub(); await refreshPlugins(); Omni.toast.success("Plugin imported"); } catch (err) { Omni.toast.error(String(err)); }
     });
 }
 
